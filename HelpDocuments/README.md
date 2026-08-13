@@ -45,6 +45,19 @@ Each feature must be:
 5. Validated
 6. Reviewed
 
+## Agentic Development
+
+The project ships with an agentic development setup (OpenCode agents,
+commands and documentation contract). Before using it, read
+[`docs/guides/agent-usage.md`](docs/guides/agent-usage.md): recommended
+repository state, commands, agents and feature specification format.
+
+Run the full feature workflow from OpenCode with:
+
+```text
+/feature "short description of the feature"
+```
+
 ## Database
 
 The application uses PostgreSQL. To start a local database with Docker:

@@ -1,32 +1,61 @@
+# Agent List
 
-implementation-agent.md, refactor-agent.md, architecture-agent.md, validation-agent.md y finalmente release-agent.md.
+| Agent         | Responsibility                        | Can edit production | Can edit tests |
+| ------------- | ------------------------------------- | :-----------------: | :------------: |
+| Orchestrator  | Coordinate the workflow, GitFlow      |          ❌         |       ❌       |
+| Specification | Feature specifications                |          ❌         |       ❌       |
+| Test          | TDD / RED                            |          ❌         |       ✅       |
+| Implementation| GREEN (production code)               |          ✅         |       ❌       |
+| Refactor      | Design cleanup                        |          ✅         |       ❌       |
+| Architecture  | Architecture validation               |          ❌         |       ❌       |
+| Validation    | Quality gate                          |          ❌         |       ❌       |
+| Release       | GitFlow / release                     |          ❌         |       ❌       |
 
+## Edit Scopes
 
-| Agente         | Responsabilidad | Puede modificar producción | Puede modificar tests |
-| -------------- | --------------- | -------------------------: | --------------------: |
-| Orchestrator   | Coordinar       |                          ❌ |                     ❌ |
-| Specification  | Especificación  |                          ❌ |                     ❌ |
-| Test           | TDD / RED       |                          ❌ |                     ✅ |
-| Implementation | GREEN           |                          ✅ |                     ❌ |
-| Refactor       | Diseño          |                          ✅ |                     ❌ |
-| Architecture   | Arquitectura    |                          ❌ |                     ❌ |
-| Validation     | Validación      |                          ❌ |                     ❌ |
-| Release        | GitFlow/release |                         ❌* |                     ❌ |
-
+```text
 Test Agent
-    READ:  todo
+    READ:  everything
     WRITE: tests/**
     WRITE: docs/agent-runs/**
 
 Implementation Agent
-    READ:  todo
+    READ:  everything
     WRITE: src/**
     WRITE: docs/agent-runs/**
 
+Refactor Agent
+    READ:  everything
+    WRITE: src/**
+    WRITE: docs/agent-runs/**
+
+Specification Agent
+    READ:  everything
+    WRITE: docs/specifications/**
+    WRITE: docs/agent-runs/**
+
 Architecture Agent
-    READ:  todo
+    READ:  everything
     WRITE: docs/agent-runs/**
 
 Validation Agent
-    READ:  todo
+    READ:  everything
     WRITE: docs/agent-runs/**
+
+Orchestrator Agent
+    READ:  everything
+    WRITE: nothing
+
+Release Agent
+    READ:  everything
+    WRITE: nothing
+```
+
+## Execution Capabilities
+
+```text
+Bash access: all agents except Specification.
+Task delegation: only Orchestrator.
+```
+
+For the full operational reference, see `docs/guides/agent-usage.md`.

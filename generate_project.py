@@ -7,7 +7,7 @@ commands), based on the Matchly experiment.
 Usage:
     python3 generate_project.py <ProjectName> [--dir <output>] [--no-validate]
                                 [--no-git] [--include-agent-runs] [--force]
-                                [--framework net10.0]
+                                [--framework net10.0] [--api-style controllers]
 
 The generated project substitutes every occurrence of "Matchly"/"matchly" with
 the provided project name (PascalCase and lowercase forms).
@@ -26,7 +26,8 @@ TEMPLATES_DIR = SCRIPT_DIR / "templates"
 HELP_DOCS_DIR = SCRIPT_DIR / "HelpDocuments"
 
 FRAMEWORK = "net10.0"
-OPENAPI_PACKAGE_VERSION = "10.0.10"
+MIN_TFM_MAJOR = 10
+API_STYLE = "controllers"
 
 C_SHARP_KEYWORDS = {
     "abstract", "as", "base", "bool", "break", "byte", "case", "catch",
@@ -321,6 +322,23 @@ def yaml_scalar(value: str) -> str:
     return json.dumps(value)
 
 
+def validate_framework(framework: str) -> str:
+    match = re.fullmatch(r"net(\d+)\.(\d+)", framework)
+    if not match:
+        raise ScriptError(
+            f"Invalid target framework '{framework}'. Expected a TFM of the form "
+            f"net<major>.<minor> (e.g. net10.0)."
+        )
+    major = int(match.group(1))
+    if major < MIN_TFM_MAJOR:
+        raise ScriptError(
+            f"Target framework '{framework}' is not supported. "
+            f"Minimum supported major version is net{MIN_TFM_MAJOR}.0 "
+            f"(e.g. net10.0, net11.0, net12.0)."
+        )
+    return framework
+
+
 def substitute(text: str, pascal: str, lower: str) -> str:
     text = text.replace("Matchly", pascal)
     text = text.replace("matchly", lower)
@@ -362,6 +380,7 @@ class Generator:
         name: str,
         out_dir: Path,
         framework: str,
+        api_style: str,
         include_agent_runs: bool,
         do_validate: bool,
         do_git: bool,
@@ -369,6 +388,7 @@ class Generator:
         self.pascal, self.lower = normalize_name(name)
         self.out = out_dir
         self.framework = framework
+        self.api_style = api_style
         self.include_agent_runs = include_agent_runs
         self.do_validate = do_validate
         self.do_git = do_git
@@ -380,6 +400,7 @@ class Generator:
             "Domain.Tests",
             "Application.Tests",
             "Infrastructure.Tests",
+            "Api.Tests",
             "Architecture.Tests",
         )
         self.validation_ok = False
@@ -479,6 +500,7 @@ class Generator:
             "Domain.Tests": ["Domain"],
             "Application.Tests": ["Application"],
             "Infrastructure.Tests": ["Infrastructure"],
+            "Api.Tests": ["Api"],
             "Architecture.Tests": ["Domain", "Application", "Infrastructure", "Api"],
         }
         for test_layer, ref_layers in src_refs.items():
@@ -491,10 +513,12 @@ class Generator:
         api_proj = api / f"{self.pascal}.Api.csproj"
         run([
             "dotnet", "add", str(api_proj), "package",
-            "Microsoft.AspNetCore.OpenApi", "--version", OPENAPI_PACKAGE_VERSION,
+            "Microsoft.AspNetCore.OpenApi",
         ])
         arch_proj = self.test_proj("Architecture.Tests") / f"{self.pascal}.Architecture.Tests.csproj"
         run(["dotnet", "add", str(arch_proj), "package", "NetArchTest.Rules"])
+        api_tests_proj = self.test_proj("Api.Tests") / f"{self.pascal}.Api.Tests.csproj"
+        run(["dotnet", "add", str(api_tests_proj), "package", "Microsoft.AspNetCore.Mvc.Testing"])
         for test_layer in self.test_layers:
             test_proj_file = self.test_proj(test_layer) / f"{self.pascal}.{test_layer}.csproj"
             run(["dotnet", "add", str(test_proj_file), "package", "FluentAssertions"])
@@ -512,10 +536,33 @@ class Generator:
             )
             marker.write_text(content, encoding="utf-8")
 
+        program_template = (
+            "ProgramControllers.cs" if self.api_style == "controllers" else "ProgramMinimal.cs"
+        )
         program = self.src_proj("Api") / "Program.cs"
         program.write_text(
             substitute_template(
-                (TEMPLATES_DIR / "code" / "Program.cs").read_text(encoding="utf-8"),
+                (TEMPLATES_DIR / "code" / program_template).read_text(encoding="utf-8"),
+                self.pascal, self.lower,
+            ),
+            encoding="utf-8",
+        )
+
+        if self.api_style == "controllers":
+            health_controller = self.src_proj("Api") / "Controllers" / "HealthController.cs"
+            health_controller.parent.mkdir(parents=True, exist_ok=True)
+            health_controller.write_text(
+                substitute_template(
+                    (TEMPLATES_DIR / "code" / "HealthController.cs").read_text(encoding="utf-8"),
+                    self.pascal, self.lower,
+                ),
+                encoding="utf-8",
+            )
+
+        health_tests = self.test_proj("Api.Tests") / "HealthTests.cs"
+        health_tests.write_text(
+            substitute_template(
+                (TEMPLATES_DIR / "code" / "HealthTests.cs").read_text(encoding="utf-8"),
                 self.pascal, self.lower,
             ),
             encoding="utf-8",
@@ -658,7 +705,7 @@ class Generator:
             log(f"  committed: {message}")
 
         test_dirs = [f"tests/{self.pascal}.{layer}" for layer in
-                     ("Domain.Tests", "Application.Tests", "Infrastructure.Tests")]
+                     ("Domain.Tests", "Application.Tests", "Infrastructure.Tests", "Api.Tests")]
 
         stage([
             ".gitignore",
@@ -675,6 +722,9 @@ class Generator:
 
         stage(["AGENTS.md", "docs", ".opencode"])
         commit("docs: define agent development contract")
+
+        run(["git", "checkout", "-b", "develop"], cwd=self.out)
+        log("  switched to branch: develop (recommended state for feature development)")
 
     # ----------------------------------------------------------------- report
     def verify_no_leftovers(self) -> list:
@@ -723,6 +773,7 @@ class Generator:
         log(f"Namespace:    {self.pascal}")
         log(f"Directory:    {self.out}")
         log(f"Framework:    {self.framework}")
+        log(f"API style:    {self.api_style}")
         log(f"Validation:   {'PASS' if self.validation_ok else 'NOT RUN / FAILED'}")
         leftovers = self.verify_no_leftovers()
         log(f"Name sweep:   {'CLEAN' if not leftovers else f'{len(leftovers)} leftover reference(s)'}")
@@ -743,7 +794,9 @@ def main() -> None:
     )
     parser.add_argument("name", help="Project name (e.g. Matchly, MyApp, My-App)")
     parser.add_argument("--dir", default=None, help="Output directory (default: <Name> in the current directory)")
-    parser.add_argument("--framework", default=FRAMEWORK, help="Target framework (default: net10.0)")
+    parser.add_argument("--framework", default=FRAMEWORK, help="Target framework, TFM form net<major>.<minor> (default: net10.0, minimum: net10.0)")
+    parser.add_argument("--api-style", default=API_STYLE, choices=["controllers", "minimal"],
+                        help="API style: 'controllers' generates a HealthController; 'minimal' uses minimal APIs (default: controllers)")
     parser.add_argument("--no-validate", action="store_true", help="Skip dotnet restore/build/test")
     parser.add_argument("--no-git", action="store_true", help="Skip git init and initial commits")
     parser.add_argument("--include-agent-runs", action="store_true", help="Also copy docs/agent-runs historical records")
@@ -751,10 +804,12 @@ def main() -> None:
     args = parser.parse_args()
 
     try:
+        validate_framework(args.framework)
         generator = Generator(
             name=args.name,
             out_dir=Path(args.dir).resolve() if args.dir else (Path.cwd() / args.name).resolve(),
             framework=args.framework,
+            api_style=args.api_style,
             include_agent_runs=args.include_agent_runs,
             do_validate=not args.no_validate,
             do_git=not args.no_git,
