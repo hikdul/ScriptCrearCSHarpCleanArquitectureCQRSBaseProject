@@ -1,0 +1,16 @@
+services:
+  {{ProjectNameLower}}-postgres:
+    image: postgres:17
+    container_name: {{ProjectNameLower}}-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: {{ProjectNameLower}}
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "5432:5432"
+    volumes:
+      - {{ProjectNameLower}}-pgdata:/var/lib/postgresql/data
+
+volumes:
+  {{ProjectNameLower}}-pgdata:

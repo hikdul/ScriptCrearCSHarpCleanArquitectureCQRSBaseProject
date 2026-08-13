@@ -1,0 +1,16 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+.vs/
+.idea/
+
+# Test results
+TestResults/
+*.trx
+
+# Generated
+*.userprefs
+*.lock.json
