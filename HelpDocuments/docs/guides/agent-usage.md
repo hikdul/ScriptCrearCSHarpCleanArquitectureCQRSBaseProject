@@ -185,14 +185,16 @@ Naming convention:
 <feature-id>-<short-name>.md
 ```
 
-Examples:
+The reference template is:
 
 ```text
-001-like-profile.md
-002-create-match.md
-003-unmatch-profile.md
-004-block-profile.md
-005-report-profile.md
+000-example-specification.md
+```
+
+New features follow the same convention:
+
+```text
+<feature-id>-<short-name>.md
 ```
 
 Feature ids are sequential and unique. The short name is a brief hyphenated
@@ -258,8 +260,8 @@ User.Like must call validation method X.
 
 ## 5.4 Example
 
-Use `docs/specifications/001-like-profile.md` as a complete reference
-specification.
+Use `docs/specifications/000-example-specification.md` as the structural
+reference for every new specification.
 
 ---
 

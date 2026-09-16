@@ -8,7 +8,11 @@ Transform the feature specification into executable acceptance tests.
 
 The source of truth is:
 
-`docs/specifications/002-create-match.md`
+`docs/specifications/000-example-specification.md`
+
+The example specification shows the required structure for every feature
+specification. Replace the placeholder content with the real feature rules
+before writing tests.
 
 The project rules are defined in:
 

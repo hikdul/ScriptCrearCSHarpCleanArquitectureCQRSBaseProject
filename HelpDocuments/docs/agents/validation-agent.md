@@ -127,8 +127,10 @@ docs/specifications/<feature>.md
 For example:
 
 ```text
-docs/specifications/004-block-profile.md
+docs/specifications/<feature-id>-<short-name>.md
 ```
+
+See `docs/specifications/000-example-specification.md` for the structure.
 
 The Validation Agent must determine which specification corresponds to the current work.
 
