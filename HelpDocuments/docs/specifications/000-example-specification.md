@@ -1,3 +1,7 @@
+
+> [!WARNING]
+> this file is use only for show to a humar the mode to creating a spec. for the agents only ignore
+
 # Example Specification
 
 This file shows how a feature specification must be written for this project.
