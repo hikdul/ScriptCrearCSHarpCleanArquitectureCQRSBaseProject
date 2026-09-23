@@ -602,6 +602,9 @@ def run(cmd: list, cwd: Path | None = None) -> subprocess.CompletedProcess:
         tail += (result.stderr or "")[-2000:]
         log("  -> FAILED")
         log(tail.strip())
+        hint = network_error_hint(tail)
+        if hint:
+            log(f"  -> {hint}")
         raise ScriptError(f"command failed: {printable}")
     log("  -> OK")
     return result
@@ -613,6 +616,35 @@ def run_soft(cmd: list, cwd: Path | None = None) -> subprocess.CompletedProcess:
     result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
     log(f"  -> exit code {result.returncode}")
     return result
+
+
+# Error markers that indicate a network problem (missing connectivity to
+# NuGet.org) rather than a code or configuration issue.
+NETWORK_ERROR_MARKERS = (
+    "NU1301",                          # unable to load the service index
+    "service index",
+    "could not connect",
+    "connection refused",
+    "connection timed out",
+    "no such host",
+    "remote name could not be resolved",
+    "the ssl connection could not be established",
+    "securechannelfailure",
+    "an error occurred while sending the request",
+    "401 (unauthorized)",
+    "403 (forbidden)",
+    "407 (proxy authentication required)",
+)
+
+
+def network_error_hint(text: str) -> str:
+    lowered = text.lower()
+    if any(marker.lower() in lowered for marker in NETWORK_ERROR_MARKERS):
+        return (
+            "This step needs network access to NuGet.org - check your "
+            "internet connection and retry."
+        )
+    return ""
 
 
 def normalize_name(raw: str) -> tuple[str, str]:
@@ -998,6 +1030,15 @@ class Generator:
             encoding="utf-8",
         )
 
+        # Dockerfiles live at the project root so the compose build context
+        # ('.') resolves their relative paths (src/<Name>.Api/...).
+        for docker_file in ("Dockerfile", "Dockerfile.dev"):
+            src_file = TEMPLATES_DIR / "docker" / docker_file
+            (self.out / docker_file).write_text(
+                substitute_template(src_file.read_text(encoding="utf-8"), self.pascal, self.lower),
+                encoding="utf-8",
+            )
+
         docker_dir = self.out / "docker"
         docker_dir.mkdir(parents=True, exist_ok=True)
         for compose_file in ("docker-compose.postgres.yml", "docker-compose.sqlserver.yml"):
@@ -1077,6 +1118,9 @@ class Generator:
             if result.returncode != 0:
                 all_ok = False
                 log(f"  {label}: FAILED")
+                hint = network_error_hint((result.stdout or "") + (result.stderr or ""))
+                if hint:
+                    log(f"  -> {hint}")
             else:
                 log(f"  {label}: PASS")
         self.validation_ok = all_ok
@@ -1108,6 +1152,8 @@ class Generator:
         stage([
             ".gitignore",
             "docker-compose.yml",
+            "Dockerfile",
+            "Dockerfile.dev",
             "docker",
             "README.md",
             f"{self.pascal}.sln",

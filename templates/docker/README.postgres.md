@@ -1,22 +1,44 @@
-# Database — PostgreSQL
+# Development Environment — PostgreSQL
 
-The API uses **PostgreSQL 17** for local development.
+The project ships with a full Docker setup: **PostgreSQL 17**, a multi-stage
+production image of the API, and a hot-reload development container.
 
-## Start the database
-
-```bash
-docker compose up -d
-```
-
-This starts `{{ProjectNameLower}}-postgres` on `localhost:5432`
-(database `{{ProjectNameLower}}`, user `postgres`, trust auth for local
-development only).
-
-To run this compose file directly from the `docker/` folder:
+## Start everything (database + API)
 
 ```bash
-docker compose -f docker/docker-compose.postgres.yml up -d
+docker compose up -d --build
 ```
+
+Services:
+
+| Service | URL | Description |
+| --- | --- | --- |
+| `{{ProjectNameLower}}-postgres` | `localhost:5432` | PostgreSQL 17 (database `{{ProjectNameLower}}`, user `postgres`, trust auth — local development only) |
+| `{{ProjectNameLower}}-api` | `http://localhost:8080` | Published API (multi-stage `Dockerfile` at project root) |
+| `{{ProjectNameLower}}-api-dev` | `http://localhost:8081` | `dotnet watch` API: `./src` mounted into the container, restarts on change |
+
+Only the database:
+
+```bash
+docker compose up -d {{ProjectNameLower}}-postgres
+```
+
+To run a compose file directly from the `docker/` folder:
+
+```bash
+docker compose -f docker/docker-compose.postgres.yml up -d --build
+```
+
+## Dockerfiles
+
+- `Dockerfile` — multi-stage build: SDK 10 restores/publishes, then the
+  ASP.NET 10 runtime image runs the published `{{ProjectName}}.Api` (non-root
+  `$APP_UID`).
+- `Dockerfile.dev` — SDK image running `dotnet watch` against
+  `src/{{ProjectName}}.Api`, with `bin`/`obj` and the NuGet cache on named
+  volumes so host filesystem writes stay out of the container.
+
+Both files sit at the project root so the compose `build:` context resolves.
 
 ## Connection string
 
@@ -25,8 +47,9 @@ Host=localhost;Port=5432;Database={{ProjectNameLower}};Username=postgres
 ```
 
 The API reads it from `ConnectionStrings:Default` in
-`src/{{ProjectName}}.Api/appsettings.json`. Override it in any environment
-with the `ConnectionStrings__Default` environment variable.
+`src/{{ProjectName}}.Api/appsettings.json`. In containers it is injected as
+the `ConnectionStrings__Default` environment variable pointing at the
+`{{ProjectNameLower}}-postgres` service.
 
 ## Switching to SQL Server
 
@@ -37,29 +60,40 @@ Server. To switch providers, regenerate the project with:
 python3 generate_project.py {{ProjectName}} --database sqlserver
 ```
 
-and start the SQL Server container with the SQL Server instructions below.
+and start the SQL Server containers with the SQL Server instructions below.
 
 ---
 
-# Database — SQL Server (alternative)
+# Development Environment — SQL Server (alternative)
 
 Deploying SQL Server locally requires a strong `MSSQL_SA_PASSWORD`, stored
 in `docker/.env` (generated and gitignored).
 
-## Start the database
+## Start everything (database + API)
 
 ```bash
-docker compose --env-file docker/.env up -d
+docker compose --env-file docker/.env up -d --build
+```
+
+Services:
+
+| Service | URL | Description |
+| --- | --- | --- |
+| `{{ProjectNameLower}}-sqlserver` | `localhost:1433` | SQL Server 2022 Developer (database `{{ProjectNameLower}}`, user `sa`) |
+| `{{ProjectNameLower}}-api` | `http://localhost:8080` | Published API (multi-stage `Dockerfile` at project root) |
+| `{{ProjectNameLower}}-api-dev` | `http://localhost:8081` | `dotnet watch` API: `./src` mounted into the container, restarts on change |
+
+Only the database:
+
+```bash
+docker compose --env-file docker/.env up -d {{ProjectNameLower}}-sqlserver
 ```
 
 or directly:
 
 ```bash
-docker compose --env-file docker/.env -f docker/docker-compose.sqlserver.yml up -d
+docker compose --env-file docker/.env -f docker/docker-compose.sqlserver.yml up -d --build
 ```
-
-This starts `{{ProjectNameLower}}-sqlserver` on `localhost:1433`
-(database `{{ProjectNameLower}}`, user `sa`).
 
 ## Connection string
 
@@ -68,5 +102,6 @@ Server=localhost,1433;Database={{ProjectNameLower}};User Id=sa;Password=<see doc
 ```
 
 The API reads it from `ConnectionStrings:Default` in
-`src/{{ProjectName}}.Api/appsettings.json`. Override it in any environment
-with the `ConnectionStrings__Default` environment variable.
+`src/{{ProjectName}}.Api/appsettings.json`. In containers it is injected as
+the `ConnectionStrings__Default` environment variable pointing at the
+`{{ProjectNameLower}}-sqlserver` service.

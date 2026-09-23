@@ -1,16 +1,57 @@
 services:
   {{ProjectNameLower}}-postgres:
-    image: postgres:17
+    image: postgres:17-alpine
     container_name: {{ProjectNameLower}}-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: postgres
       POSTGRES_DB: {{ProjectNameLower}}
+      POSTGRES_USER: postgres
       POSTGRES_HOST_AUTH_METHOD: trust
     ports:
       - "5432:5432"
     volumes:
       - {{ProjectNameLower}}-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d {{ProjectNameLower}}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  {{ProjectNameLower}}-api:
+    depends_on:
+      {{ProjectNameLower}}-postgres:
+        condition: service_healthy
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: {{ProjectNameLower}}-api
+    ports:
+      - "8080:8080"
+    environment:
+      ASPNETCORE_HTTP_PORTS: "8080"
+      ConnectionStrings__Default: Host={{ProjectNameLower}}-postgres;Port=5432;Database={{ProjectNameLower}};Username=postgres
+
+  {{ProjectNameLower}}-api-dev:
+    depends_on:
+      {{ProjectNameLower}}-postgres:
+        condition: service_healthy
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: {{ProjectNameLower}}-api-dev
+    ports:
+      - "8081:8080"
+    environment:
+      ConnectionStrings__Default: Host={{ProjectNameLower}}-postgres;Port=5432;Database={{ProjectNameLower}};Username=postgres
+    volumes:
+      - .:/src
+      - {{ProjectNameLower}}-api-dev-bin:/src/src/{{ProjectName}}.Api/bin
+      - {{ProjectNameLower}}-api-dev-obj:/src/src/{{ProjectName}}.Api/obj
+      - {{ProjectNameLower}}-api-dev-nuget:/root/.nuget/packages
+    working_dir: /src
 
 volumes:
   {{ProjectNameLower}}-pgdata:
+  {{ProjectNameLower}}-api-dev-bin:
+  {{ProjectNameLower}}-api-dev-obj:
+  {{ProjectNameLower}}-api-dev-nuget:

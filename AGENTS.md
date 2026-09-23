@@ -41,6 +41,15 @@ The generator replaces tokens in two passes:
 If you add new templates, use the correct token convention for the directory.
 Mixing them up is a common bug.
 
+Two places break the simple rule:
+
+- Agent bodies are files under `HelpDocuments/docs/agents/*.md` (Matchly
+  tokens); command bodies are inline in `generate_project.py` (the `COMMANDS`
+  list) and use `{{ProjectName}}` tokens.
+- `templates/code/` also carries inline-only tokens — `{{Layer}}`,
+  `{{TestLayer}}`, `{{ProviderName}}` — substituted by hand in
+  `Generator.write_custom_files()`, not by the generic pass.
+
 ## Validation pipeline
 
 The script runs validation after generation unless `--no-validate` is passed:
@@ -49,12 +58,15 @@ The script runs validation after generation unless `--no-validate` is passed:
 2. `dotnet build`
 3. `dotnet test`
 
-Generation fails with a non-zero exit if any step fails. The script also
-performs a name sweep to catch leftover `Matchly`/`matchly` references.
+Generation fails with a non-zero exit if any step fails. A name sweep for
+leftover `Matchly`/`matchly`/`{{...}}` references also runs every time, but it
+only reports in the summary — it does not fail the run, so verify the output
+yourself when adding templates.
 
-## Architecture constraints (enforced by generated tests)
+## Architecture constraints
 
-Dependency graph that `ArchitectureTests.cs` enforces via NetArchTest:
+Designed dependency graph, wired with `dotnet add reference` in
+`Generator.configure_projects`:
 
 ```
 Domain -> nothing (pure business rules)
@@ -63,8 +75,14 @@ Infrastructure -> Application, Domain
 API -> Application; API -> Infrastructure (composition root, DI wiring only)
 ```
 
-Domain must never reference ASP.NET Core, EF Core, or PostgreSQL. These rules
-are in `templates/code/ArchitectureTests.cs`.
+The generated tests enforce only a subset of this. The 5 `[Fact]`s in
+`templates/code/ArchitectureTests.cs` are namespace-level checks: Domain has no
+dependency on Application/Infrastructure/Api, Application has none on
+Infrastructure/Api. Infrastructure and Api are never the inspected subject, and
+no rule scans for ASP.NET Core / EF Core / provider packages — new project
+references or packages added to those layers will **not** be caught. The
+stronger bans (Domain must not reference ASP.NET Core, EF Core, or a database
+provider) are contract rules in `HelpDocuments/` docs, not enforced tests.
 
 ## Structure
 
@@ -78,7 +96,8 @@ templates/
   code/                      # Tokenized .cs files (including per-database
                              #   EF Core registration variants)
   docker/                    # Docker Compose files + per-database READMEs
-                             #   (PostgreSQL and SQL Server)
+                             #   plus Dockerfile / Dockerfile.dev, mirrored
+                             #   into the generated project root
 TextOfChat.md                # Original reference material (not copied)
 ```
 
@@ -104,3 +123,12 @@ the summary.
 - The `HelpDocuments/AGENTS.md` content is the contract for **generated**
   projects. This file (`AGENTS.md` at the root) is for agents working on
   **this scaffolder**.
+- `copy_tree()` / `renamed_path()` in `generate_project.py` are dead code —
+  never called. Docs are copied inline in `Generator.copy_docs()`.
+- Generation normally needs network: `dotnet add package` and the validation
+  `restore` hit NuGet. On network-shaped failures the script prints a
+  "check your internet connection" hint; the code is fine.
+- For a fast local dev loop use `--no-validate --no-git --force` into a
+  throwaway `--dir` — it skips all NuGet and git work.
+- The initial `git init` commits require `git user.name`/`user.email` to be
+  configured, otherwise generation fails with a clear error.

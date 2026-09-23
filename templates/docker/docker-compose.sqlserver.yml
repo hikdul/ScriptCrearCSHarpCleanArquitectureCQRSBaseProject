@@ -12,5 +12,39 @@ services:
     volumes:
       - {{ProjectNameLower}}-mssqldata:/var/opt/mssql
 
+  {{ProjectNameLower}}-api:
+    depends_on:
+      - {{ProjectNameLower}}-sqlserver
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: {{ProjectNameLower}}-api
+    ports:
+      - "8080:8080"
+    environment:
+      ASPNETCORE_HTTP_PORTS: "8080"
+      ConnectionStrings__Default: Server={{ProjectNameLower}}-sqlserver,1433;Database={{ProjectNameLower}};User Id=sa;Password=${MSSQL_SA_PASSWORD};TrustServerCertificate=True
+
+  {{ProjectNameLower}}-api-dev:
+    depends_on:
+      - {{ProjectNameLower}}-sqlserver
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: {{ProjectNameLower}}-api-dev
+    ports:
+      - "8081:8080"
+    environment:
+      ConnectionStrings__Default: Server={{ProjectNameLower}}-sqlserver,1433;Database={{ProjectNameLower}};User Id=sa;Password=${MSSQL_SA_PASSWORD};TrustServerCertificate=True
+    volumes:
+      - .:/src
+      - {{ProjectNameLower}}-api-dev-bin:/src/src/{{ProjectName}}.Api/bin
+      - {{ProjectNameLower}}-api-dev-obj:/src/src/{{ProjectName}}.Api/obj
+      - {{ProjectNameLower}}-api-dev-nuget:/root/.nuget/packages
+    working_dir: /src
+
 volumes:
   {{ProjectNameLower}}-mssqldata:
+  {{ProjectNameLower}}-api-dev-bin:
+  {{ProjectNameLower}}-api-dev-obj:
+  {{ProjectNameLower}}-api-dev-nuget:
