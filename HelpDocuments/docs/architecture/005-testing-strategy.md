@@ -33,10 +33,10 @@ not the subject of the test.
 ## Rules
 
 * Tests must not rely on InMemory behavior when validating
-  PostgreSQL-specific behavior.
-* When PostgreSQL-specific behavior becomes important, integration tests
-  should use a real PostgreSQL test database or a disposable PostgreSQL
-  environment.
+  database-provider-specific behavior.
+* When provider-specific behavior becomes important, integration tests
+  should use a real database for the selected provider (a disposable
+  PostgreSQL or SQL Server environment).
 * The testing strategy must not weaken production behavior merely to make
   InMemory tests pass.
 

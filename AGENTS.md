@@ -18,7 +18,9 @@ buildable .NET project.
 # Generate a project (requires: dotnet SDK 10+, git, Python 3.10+)
 python3 generate_project.py <Name> [--dir <output>] [--framework net10.0]
                                   [--api-style controllers|minimal]
+                                  [--database postgres|sqlserver]
                                   [--no-validate] [--no-git] [--force]
+python3 generate_project.py       # interactive Gruvbox wizard
 
 # Validate a generated project (inside the generated directory)
 dotnet restore && dotnet build && dotnet test
@@ -58,7 +60,7 @@ Dependency graph that `ArchitectureTests.cs` enforces via NetArchTest:
 Domain -> nothing (pure business rules)
 Application -> Domain only
 Infrastructure -> Application, Domain
-API -> Application only
+API -> Application; API -> Infrastructure (composition root, DI wiring only)
 ```
 
 Domain must never reference ASP.NET Core, EF Core, or PostgreSQL. These rules
@@ -73,10 +75,22 @@ HelpDocuments/               # Source docs copied into generated projects
   README.md                  # -> becomes the generated project's README.md
   docs/                      # -> docs/ in generated project
 templates/
-  code/                      # Tokenized .cs files
-  docker-compose.yml         # PostgreSQL 17
+  code/                      # Tokenized .cs files (including per-database
+                             #   EF Core registration variants)
+  docker/                    # Docker Compose files + per-database READMEs
+                             #   (PostgreSQL and SQL Server)
 TextOfChat.md                # Original reference material (not copied)
 ```
+
+## Database selection
+
+`--database postgres|sqlserver` selects the EF Core provider wired into
+Infrastructure, the connection string written to `appsettings.json`, and
+which compose file becomes the generated project's root `docker-compose.yml`.
+The `docker/` folder always contains compose files and READMEs for **both**
+databases so the team can switch. SQL Server credentials are generated with
+Python `secrets`, stored in `docker/.env` (gitignored) and printed once in
+the summary.
 
 ## Gotchas
 

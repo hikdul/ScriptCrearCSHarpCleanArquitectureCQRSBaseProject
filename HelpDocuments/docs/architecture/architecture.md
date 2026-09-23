@@ -44,9 +44,9 @@ The Domain layer contains:
 
 * ASP.NET Core
 * Entity Framework Core
+* database providers (PostgreSQL, SQL Server)
 * Infrastructure
 * API
-* PostgreSQL
 * External services
 
 ## Application
@@ -69,7 +69,7 @@ Application must not depend on Infrastructure implementations.
 Infrastructure contains implementation details:
 
 * Entity Framework Core
-* PostgreSQL
+* database providers (e.g. PostgreSQL, SQL Server)
 * Repositories
 * External services
 * Persistence
@@ -85,7 +85,8 @@ API contains:
 * Dependency injection composition
 * Authentication configuration
 
-API depends on Application.
+API depends on Application and, as the composition root, Infrastructure
+(for dependency injection wiring only).
 
 ## Dependency Inversion
 

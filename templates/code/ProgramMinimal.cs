@@ -1,6 +1,9 @@
+using {{ProjectName}}.Infrastructure;
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddOpenApi();
+builder.Services.AddInfrastructure(builder.Configuration.GetConnectionString("Default")!);
 
 var app = builder.Build();
 

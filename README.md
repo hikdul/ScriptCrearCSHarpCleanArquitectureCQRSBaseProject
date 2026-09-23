@@ -12,7 +12,8 @@ agentic development tooling (agents, commands, docs) ready for OpenCode.
 ## Usage
 
 ```bash
-python3 generate_project.py <Name> [options]
+python3 generate_project.py                          # interactive Gruvbox wizard
+python3 generate_project.py <Name> [options]         # scriptable CLI
 ```
 
 Generates a new project with:
@@ -23,13 +24,23 @@ Generates a new project with:
   layer dependency graph).
 - Controllers-based API (default) with a `HealthController` exposing `GET /health`,
   and OpenAPI in Development. Minimal API mode is available via `--api-style minimal`.
-- `docker-compose.yml` with PostgreSQL 17.
+- **Database selection** (`--database postgres|sqlserver`): generates the
+  Docker Compose file for the selected provider, wires EF Core + the matching
+  provider package in Infrastructure, and writes the connection string to
+  `appsettings.json`.
+- Docker files: a root `docker-compose.yml` for the selected database plus a
+  `docker/` folder with compose files and READMEs for **both** PostgreSQL and
+  SQL Server, so the team can switch providers.
 - A copy of the agentic development contract: `AGENTS.md`, `README.md` and
   `docs/` (agents, architecture, specifications, prompts, workflows, guides).
 - `.opencode/` with 8 subagents and 7 commands wired to that contract.
 - Automatic validation: `dotnet restore`, `dotnet build` and `dotnet test`
   must all pass, otherwise generation fails.
 - `git init` with three logical commits and a clean working tree.
+
+Run with no arguments to use the interactive **Gruvbox-themed wizard**
+(project name, database, API style, framework, output directory and
+validate/git toggles).
 
 The tokens `Matchly`/`matchly` are replaced with the given project name
 (PascalCase / lowercase) in file names, folder names and file contents.
@@ -72,23 +83,49 @@ with a `WebApplicationFactory` test in both cases.
 
 ## Options
 
-| Option                | Description                                            |
-| --------------------- | ------------------------------------------------------ |
-| `--dir DIR`           | Output directory (default: `<Name>` in current dir)    |
-| `--framework X`       | Target framework, TFM form `net<major>.<minor>` (default: `net10.0`, minimum: `net10.0`) |
-| `--api-style X`       | API style: `controllers` (default) or `minimal`        |
-| `--no-validate`       | Skip `dotnet restore/build/test`                       |
-| `--no-git`            | Skip `git init` and initial commits                    |
-| `--include-agent-runs`| Also copy `docs/agent-runs` historical records         |
-| `--force`             | Delete and recreate the output directory if not empty  |
+| Option                 | Description                                            |
+| ---------------------- | ------------------------------------------------------ |
+| `--database X`         | Database provider: `postgres` (default) or `sqlserver` |
+| `--db-password PASS`   | SQL Server SA password (default: random, stored in `docker/.env`) |
+| `--dir DIR`            | Output directory (default: `<Name>` in current dir)    |
+| `--framework X`        | Target framework, TFM form `net<major>.<minor>` (default: `net10.0`, minimum: `net10.0`) |
+| `--api-style X`        | API style: `controllers` (default) or `minimal`        |
+| `--no-validate`        | Skip `dotnet restore/build/test`                       |
+| `--no-git`             | Skip `git init` and initial commits                    |
+| `--include-agent-runs` | Also copy `docs/agent-runs` historical records         |
+| `--force`              | Delete and recreate the output directory if not empty  |
+| `--wizard`, `-w`       | Force the interactive Gruvbox-themed selection wizard  |
 
 ## Examples
 
 ```bash
+# Interactive wizard (project name, database, API style, etc.)
+python3 generate_project.py
+
+# Postgres + Controllers (default options)
 python3 generate_project.py Matchly --dir ~/workspace/Matchly
-python3 generate_project.py My-App --framework net10.0 --no-git
-python3 generate_project.py MyApp --api-style minimal
+
+# SQL Server with a custom SA password
+python3 generate_project.py My-App --database sqlserver --db-password 'Str0ng!Pass'
+
+# Minimal API, net10.0, skip git
+python3 generate_project.py MyApp --api-style minimal --no-git
+
+# Force the wizard even when flags are provided
+python3 generate_project.py MyApp --wizard
 ```
+
+## Databases & Docker
+
+The `--database` flag selects which Docker Compose file becomes the root
+`docker-compose.yml`. A `docker/` folder containing compose files and
+READMEs for **both** PostgreSQL and SQL Server is always generated so the
+team can switch providers without regenerating the project.
+
+A `ConnectionStrings:Default` entry is written to
+`src/<Name>.Api/appsettings.json` with the correct connection string for
+the selected provider. For SQL Server, a random SA password is generated,
+stored in `docker/.env` (gitignored) and printed in the summary.
 
 After generation, the repository is on the `develop` branch (the recommended
 state). Open the project in OpenCode and run `/feature` to start the agentic
@@ -102,7 +139,12 @@ state, commands, agents and feature specification format.
 - `HelpDocuments/` — source of the agentic development contract that is copied
   (with name substitution) into every generated project.
 - `templates/` — tokenized code/config templates (`{{ProjectName}}`,
-  `{{ProjectNameLower}}`).
+  `{{ProjectNameLower}}`):
+  - `templates/code/` — C# sources, including the per-database EF Core
+    registration variants (`InfrastructureRegistration.Postgres.cs` /
+    `InfrastructureRegistration.SqlServer.cs`).
+  - `templates/docker/` — Docker Compose files and per-database READMEs for
+    PostgreSQL and SQL Server.
 - `TextOfChat.md` — original agentic-programming guide the contract is derived
   from.
 

@@ -94,6 +94,7 @@ Allowed dependencies:
 ```text
 API → Application
 API → Domain
+API → Infrastructure (composition root: DI wiring only)
 
 Application → Domain
 
@@ -125,7 +126,7 @@ Domain must not depend on:
 ```text
 ASP.NET Core
 Entity Framework Core
-PostgreSQL
+database providers (PostgreSQL, SQL Server)
 HTTP
 Application
 Infrastructure
@@ -164,7 +165,7 @@ Application must not depend directly on:
 Infrastructure
 API
 Entity Framework Core
-PostgreSQL
+database providers (PostgreSQL, SQL Server)
 ```
 
 Infrastructure implementations must be accessed through abstractions where required.
@@ -179,7 +180,7 @@ Examples:
 
 ```text
 Entity Framework Core
-PostgreSQL
+database providers (e.g. PostgreSQL, SQL Server)
 Repositories
 External services
 File systems
@@ -478,7 +479,7 @@ A Domain feature unexpectedly introduces:
 
 ```text
 EF Core
-PostgreSQL
+database providers
 HTTP
 API changes
 external services

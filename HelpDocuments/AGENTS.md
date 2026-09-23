@@ -65,7 +65,7 @@ Domain must NOT depend on:
 * API
 * ASP.NET Core
 * Entity Framework Core
-* PostgreSQL
+* database providers (PostgreSQL, SQL Server)
 * HTTP
 * external services
 
@@ -102,7 +102,7 @@ Infrastructure contains implementation details.
 Examples:
 
 * Entity Framework Core
-* PostgreSQL
+* database providers (e.g. PostgreSQL, SQL Server)
 * Repository implementations
 * External services
 * Persistence
@@ -131,6 +131,7 @@ API contains:
 API may depend on:
 
 * Application
+* Infrastructure (composition root: dependency injection wiring only)
 
 API must not contain business rules.
 
@@ -148,7 +149,7 @@ Application → API
 
 Domain → ASP.NET Core
 Domain → Entity Framework Core
-Domain → PostgreSQL
+Domain → database providers (PostgreSQL, SQL Server)
 
 ```
 
@@ -405,7 +406,8 @@ If a discovered problem is outside the current feature:
 
 # 13. Database
 
-The application uses PostgreSQL.
+The application uses the database selected at generation time
+(PostgreSQL or SQL Server).
 
 Persistence belongs to Infrastructure.
 

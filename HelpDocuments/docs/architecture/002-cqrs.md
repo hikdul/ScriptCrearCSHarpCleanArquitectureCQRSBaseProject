@@ -71,7 +71,7 @@ Handlers must NOT depend directly on:
 
 * Infrastructure implementations
 * Entity Framework Core
-* PostgreSQL
+* database providers (PostgreSQL, SQL Server)
 * API
 * ASP.NET Core
 

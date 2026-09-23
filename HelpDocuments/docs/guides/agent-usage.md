@@ -76,15 +76,16 @@ The `<feature-id>` matches the specification document id in
 
 ## 2.3 Infrastructure
 
-If the feature touches persistence or the database, start PostgreSQL first:
+If the feature touches persistence or the database, start the database
+selected at generation time first:
 
 ```bash
 docker compose up -d
 ```
 
-This starts `matchly-postgres` on `localhost:5432`
-(database `matchly`, user `postgres`, trust auth for local
-development).
+This starts the container for the selected database (PostgreSQL or SQL
+Server). See `docker/README.md` for ports, credentials and how to switch
+providers.
 
 ## 2.4 Scope
 
@@ -354,7 +355,7 @@ validation commands.
 Before starting a feature:
 
 - [ ] Branch is `develop` and the working tree is clean.
-- [ ] PostgreSQL is running (`docker compose up -d`) if needed.
+- [ ] The selected database container is running (`docker compose up -d`) if needed.
 - [ ] One feature at a time.
 
 During development:

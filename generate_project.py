@@ -5,21 +5,41 @@ with agentic development tooling (TDP workflow, specialized agents and OpenCode
 commands), based on the Matchly experiment.
 
 Usage:
-    python3 generate_project.py <ProjectName> [--dir <output>] [--no-validate]
-                                [--no-git] [--include-agent-runs] [--force]
-                                [--framework net10.0] [--api-style controllers]
+    python3 generate_project.py                      # interactive Gruvbox wizard
+    python3 generate_project.py <ProjectName> [options]
+
+Options:
+    --database postgres|sqlserver   Database provider (default: postgres)
+    --db-password PASSWORD          SQL Server SA password (default: random)
+    --api-style controllers|minimal API style (default: controllers)
+    --framework net10.0             Target framework (default: net10.0)
+    --dir DIR                       Output directory
+    --no-validate                   Skip dotnet restore/build/test
+    --no-git                        Skip git init and initial commits
+    --include-agent-runs            Also copy docs/agent-runs records
+    --force                         Delete and recreate the output directory
+    --wizard                        Force the interactive Gruvbox wizard
 
 The generated project substitutes every occurrence of "Matchly"/"matchly" with
-the provided project name (PascalCase and lowercase forms).
+the provided project name (PascalCase and lowercase forms). Template files
+under templates/ are substituted with {{ProjectName}}/{{ProjectNameLower}}.
 """
 
 import argparse
 import json
 import re
+import secrets
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+try:  # POSIX terminals only; the wizard falls back to numbered menus elsewhere
+    import termios
+    import tty
+    POSIX_TTY = True
+except ImportError:
+    POSIX_TTY = False
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = SCRIPT_DIR / "templates"
@@ -42,6 +62,296 @@ C_SHARP_KEYWORDS = {
     "ulong", "unchecked", "unsafe", "ushort", "using", "virtual", "void",
     "volatile", "while",
 }
+
+DATABASES = {
+    "postgres": {
+        "display": "PostgreSQL",
+        "compose_source": "docker-compose.postgres.yml",
+        "registration_source": "InfrastructureRegistration.Postgres.cs",
+        "provider_package": "Npgsql.EntityFrameworkCore.PostgreSQL",
+        "provider_name": "Npgsql.EntityFrameworkCore.PostgreSQL",
+        "password_required": False,
+    },
+    "sqlserver": {
+        "display": "SQL Server",
+        "compose_source": "docker-compose.sqlserver.yml",
+        "registration_source": "InfrastructureRegistration.SqlServer.cs",
+        "provider_package": "Microsoft.EntityFrameworkCore.SqlServer",
+        "provider_name": "Microsoft.EntityFrameworkCore.SqlServer",
+        "password_required": True,
+    },
+}
+
+# ------------------------------------------------------------------ gruvbox UI
+# 256-color approximations of the Gruvbox dark palette.
+GRUVBOX = {
+    "bg0": "\x1b[48;5;235m",    # #282828
+    "fg": "\x1b[38;5;223m",     # #ebdbb2
+    "gray": "\x1b[38;5;244m",   # #928374
+    "red": "\x1b[38;5;167m",    # #fb4934
+    "green": "\x1b[38;5;142m",  # #b8bb26
+    "yellow": "\x1b[38;5;214m", # #fabd2f
+    "blue": "\x1b[38;5;109m",   # #83a598
+    "purple": "\x1b[38;5;175m", # #d3869b
+    "aqua": "\x1b[38;5;108m",   # #8ec07c
+    "orange": "\x1b[38;5;208m", # #fe8019
+    "bold": "\x1b[1m",
+    "reset": "\x1b[0m",
+}
+WIDTH = 78
+ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+class WizardAbort(Exception):
+    pass
+
+
+def _style(text: str, color: str, bold: bool = False) -> str:
+    if not sys.stdout.isatty():
+        return text
+    code = GRUVBOX[color]
+    if bold:
+        code += GRUVBOX["bold"]
+    return f"{code}{text}{GRUVBOX['reset']}"
+
+
+def _pad_width(styled: str) -> int:
+    return len(ANSI_RE.sub("", styled))
+
+
+def cprint(text: str = "", color: str = "fg", bold: bool = False, end: str = "\n") -> None:
+    print(_style(text, color, bold), end=end)
+
+
+def header(title: str) -> None:
+    cprint(f"\n{_style('===', 'yellow', True)} {_style(title, 'yellow', True)} {_style('===', 'yellow', True)}")
+
+
+def box(lines: list, width: int = WIDTH, title: str | None = None) -> None:
+    border = GRUVBOX["yellow"] + GRUVBOX["bold"]
+    reset = GRUVBOX["reset"]
+    if title:
+        plain_title = f" {title} "
+        if sys.stdout.isatty():
+            print(f"{border}┌─{reset}{_style(plain_title, 'green', True)}{border}{'─' * max(0, width - _pad_width(plain_title) - 3)}┐{reset}")
+        else:
+            print(f"┌─{plain_title}{'─' * max(0, width - len(plain_title) - 3)}┐")
+    else:
+        if sys.stdout.isatty():
+            print(f"{border}┌{'─' * (width - 2)}┐{reset}")
+        else:
+            print(f"┌{'─' * (width - 2)}┐")
+    for item in lines:
+        if isinstance(item, str):
+            text, color, bold = item, "fg", False
+        else:
+            text, color, bold = item
+        pad = max(0, width - 4 - _pad_width(text))
+        if sys.stdout.isatty():
+            print(f"{border}│{reset} {_style(text, color, bold)}{' ' * pad} {border}│{reset}")
+        else:
+            print(f"│ {text}{' ' * pad} │")
+    if sys.stdout.isatty():
+        print(f"{border}└{'─' * (width - 2)}┘{reset}")
+    else:
+        print(f"└{'─' * (width - 2)}┘")
+
+
+def show_banner() -> None:
+    box(
+        [
+            (f"  {_style('Clean Architecture', 'green', True)}  {_style('•', 'yellow')}  "
+             f"{_style('CQRS', 'green', True)}  {_style('•', 'yellow')}  "
+             f"{_style('.NET', 'green', True)}", "fg", False),
+            (f"  Project Scaffolder  {_style('•', 'yellow')}  "
+             f"{_style('OpenCode agentic tooling', 'gray')}  {_style('•', 'yellow')}  "
+             f"{_style('Gruvbox', 'orange', True)}", "fg", False),
+        ],
+        title="Matchly Generator",
+    )
+
+
+def _read_key() -> str:
+    if not POSIX_TTY:
+        return ""
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        data = sys.stdin.buffer.read(3)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+    if data == b"\x1b[A":
+        return "up"
+    if data == b"\x1b[B":
+        return "down"
+    if data in (b"\r", b"\n"):
+        return "enter"
+    if data in (b"\x1b", b"q", b"Q"):
+        return "quit"
+    return ""
+
+
+def _render_options(options: list[str], index: int) -> list[str]:
+    rows = []
+    for i, opt in enumerate(options):
+        marker = "▸" if i == index else " "
+        color = "aqua" if i == index else "gray"
+        rows.append(f"  {_style(marker, 'yellow', True if i == index else False)} {_style(opt, color, bold=(i == index))}")
+    return rows
+
+
+def select_choice(prompt: str, options: list[str]) -> int:
+    n = len(options)
+    index = 0
+    print()
+    cprint(prompt, "yellow", bold=True)
+
+    interactive = sys.stdin.isatty() and POSIX_TTY
+    if not interactive:
+        print()
+        for i, opt in enumerate(options):
+            print(f"  {i + 1}. {opt}")
+        while True:
+            try:
+                raw = input(_style("  Select option: ", "aqua", bold=True)).strip()
+            except EOFError:
+                raise WizardAbort()
+            if raw.isdigit() and 1 <= int(raw) <= n:
+                print()
+                return int(raw) - 1
+            cprint(f"  ✗ Invalid option: {raw}", "red")
+
+    sys.stdout.write("\n".join(_render_options(options, index)) + "\n")
+    sys.stdout.flush()
+
+    while True:
+        key = _read_key()
+        if key == "up":
+            index = (index - 1) % n
+        elif key == "down":
+            index = (index + 1) % n
+        elif key == "enter":
+            print()
+            return index
+        elif key == "quit":
+            print()
+            raise WizardAbort()
+        else:
+            continue
+        sys.stdout.write(f"\x1b[{n + 1}A")
+        sys.stdout.write("\n".join(_render_options(options, index)) + "\n")
+        sys.stdout.flush()
+
+
+def ask_text(prompt: str, default: str | None = None, validator=None) -> str:
+    while True:
+        suffix = f" [{default}]" if default else ""
+        try:
+            raw = input(f"\n{_style(prompt, 'yellow', bold=True)}{_style(suffix, 'gray')} : ").strip()
+        except EOFError:
+            raise WizardAbort()
+        if not raw and default:
+            raw = default
+        if validator is not None:
+            try:
+                validator(raw)
+            except ValueError as exc:
+                cprint(f"  ✗ {exc}", "red")
+                continue
+        return raw
+
+
+def ask_yes_no(prompt: str, default: bool = True) -> bool:
+    suffix = "(Y/n)" if default else "(y/N)"
+    try:
+        raw = input(f"\n{_style(prompt, 'aqua', bold=True)} {_style(suffix, 'gray')} : ").strip().lower()
+    except EOFError:
+        raise WizardAbort()
+    if not raw:
+        return default
+    return raw in ("y", "yes")
+
+
+def generate_db_password() -> str:
+    return secrets.token_urlsafe(12)
+
+
+def run_wizard() -> argparse.Namespace:
+    print()
+    show_banner()
+    print()
+    box(
+        [
+            ("Generates a .NET Clean Architecture solution with CQRS,", "gray", False),
+            ("agents, commands and docker files for the selected database.", "gray", False),
+            (f"  {_style('postgres', 'blue', True)}  |  {_style('sqlserver', 'blue', True)}", "gray", False),
+        ],
+        width=WIDTH,
+    )
+    print()
+
+    name = ask_text("Project name", validator=normalize_name)
+
+    db_keys = list(DATABASES)
+    db_idx = select_choice("Select the database", [DATABASES[k]["display"] for k in db_keys])
+    database = db_keys[db_idx]
+
+    api_idx = select_choice("Select the API style", ["controllers", "minimal"])
+    api_style = "controllers" if api_idx == 0 else "minimal"
+
+    framework = ask_text("Target framework", default=FRAMEWORK, validator=validate_framework)
+    out_dir = ask_text("Output directory", default=str(Path.cwd() / name))
+
+    do_validate = ask_yes_no("Run dotnet restore/build/test validation?", True)
+    do_git = ask_yes_no("Initialize git repository (three commits)?", True)
+
+    if DATABASES[database]["password_required"]:
+        db_password = generate_db_password()
+    else:
+        db_password = None
+
+    print()
+    box(
+        [
+            (f"  {_style('Project:', 'yellow', True)}   {name}", "fg", False),
+            (f"  {_style('Database:', 'yellow', True)}  {DATABASES[database]['display']}", "fg", False),
+            (f"  {_style('API:', 'yellow', True)}       {api_style}", "fg", False),
+            (f"  {_style('Framework:', 'yellow', True)} {framework}", "fg", False),
+            (f"  {_style('Output:', 'yellow', True)}    {out_dir}", "fg", False),
+            (f"  {_style('Validate:', 'yellow', True)}  {'yes' if do_validate else 'no'}", "fg", False),
+            (f"  {_style('Git init:', 'yellow', True)}  {'yes' if do_git else 'no'}", "fg", False),
+        ],
+        title="Summary",
+    )
+    if db_password:
+        cprint(f"\n  SQL Server SA password: {_style(db_password, 'orange', True)}")
+        cprint("  (stored in docker/.env, gitignored)", "gray")
+
+    out_path = Path(out_dir).resolve()
+    force = False
+    if out_path.exists() and any(out_path.iterdir()):
+        force = ask_yes_no(f"Output directory '{out_dir}' is not empty. Delete and recreate?", False)
+
+    if not ask_yes_no("Generate the project now?", True):
+        print()
+        cprint("Aborted by user.", "red", bold=True)
+        raise SystemExit(0)
+
+    print()
+    return argparse.Namespace(
+        name=name,
+        dir=out_dir,
+        framework=framework,
+        api_style=api_style,
+        database=database,
+        db_password=db_password,
+        no_validate=not do_validate,
+        no_git=not do_git,
+        include_agent_runs=False,
+        force=force,
+    )
+
 
 AGENTS = [
     {
@@ -241,7 +551,7 @@ Return REFACTORED or NO_REFACTOR_REQUIRED with validation results.
 Read @AGENTS.md, the feature specification, the changed files and @docs/architecture/architecture.md.
 
 Verify:
-- Domain has no dependency on Application, Infrastructure, API, ASP.NET Core, EF Core or PostgreSQL.
+- Domain has no dependency on Application, Infrastructure, API, ASP.NET Core, EF Core or the database provider (PostgreSQL / SQL Server).
 - Application depends only on Domain.
 - Infrastructure depends only on Application and Domain.
 - API depends only on Application and contains no business rules.
@@ -374,6 +684,15 @@ def copy_tree(source: Path, target: Path, pascal: str, lower: str) -> None:
             dest.write_text(substitute(content, pascal, lower), encoding="utf-8")
 
 
+def build_connection_string(database: str, lower: str, password: str | None = None) -> str:
+    if database == "postgres":
+        return f"Host=localhost;Port=5432;Database={lower};Username=postgres"
+    return (
+        f"Server=localhost,1433;Database={lower};User Id=sa;"
+        f"Password={password};TrustServerCertificate=True"
+    )
+
+
 class Generator:
     def __init__(
         self,
@@ -381,6 +700,8 @@ class Generator:
         out_dir: Path,
         framework: str,
         api_style: str,
+        database: str,
+        db_password: str | None,
         include_agent_runs: bool,
         do_validate: bool,
         do_git: bool,
@@ -389,6 +710,15 @@ class Generator:
         self.out = out_dir
         self.framework = framework
         self.api_style = api_style
+        self.database = database
+        self.db_info = DATABASES[database]
+        if self.db_info["password_required"]:
+            self.db_password = db_password or generate_db_password()
+        else:
+            self.db_password = None
+        self.connection_string = build_connection_string(
+            self.database, self.lower, self.db_password
+        )
         self.include_agent_runs = include_agent_runs
         self.do_validate = do_validate
         self.do_git = do_git
@@ -441,7 +771,7 @@ class Generator:
 
     # -------------------------------------------------------------- scaffolding
     def scaffold(self) -> None:
-        log("\n=== Scaffolding projects ===")
+        header("Scaffolding projects")
         run(["dotnet", "new", "sln", "-n", self.pascal, "-o", str(self.out), "--format", "sln"])
 
         for layer in self.layers:
@@ -472,7 +802,7 @@ class Generator:
         ]
         run(["dotnet", "sln", str(self.sln), "add", *[str(p) for p in projects]])
 
-        log("\n=== Removing template placeholder files ===")
+        header("Removing template placeholder files")
         for layer in self.layers:
             if layer == "Api":
                 continue
@@ -485,7 +815,7 @@ class Generator:
                 placeholder.unlink()
 
     def configure_projects(self) -> None:
-        log("\n=== Adding project references ===")
+        header("Adding project references")
         app = self.src_proj("Application")
         inf = self.src_proj("Infrastructure")
         api = self.src_proj("Api")
@@ -495,6 +825,9 @@ class Generator:
         run(["dotnet", "add", str(inf / f"{self.pascal}.Infrastructure.csproj"), "reference", str(domain / f"{self.pascal}.Domain.csproj")])
         run(["dotnet", "add", str(inf / f"{self.pascal}.Infrastructure.csproj"), "reference", str(app / f"{self.pascal}.Application.csproj")])
         run(["dotnet", "add", str(api / f"{self.pascal}.Api.csproj"), "reference", str(app / f"{self.pascal}.Application.csproj")])
+        # The API is the composition root: it wires persistence registered in
+        # Infrastructure. No business rules live in the API layer.
+        run(["dotnet", "add", str(api / f"{self.pascal}.Api.csproj"), "reference", str(inf / f"{self.pascal}.Infrastructure.csproj")])
 
         src_refs = {
             "Domain.Tests": ["Domain"],
@@ -509,7 +842,7 @@ class Generator:
                 ref_file = self.src_proj(ref_layer) / f"{self.pascal}.{ref_layer}.csproj"
                 run(["dotnet", "add", str(test_proj_file), "reference", str(ref_file)])
 
-        log("\n=== Adding NuGet packages ===")
+        header("Adding NuGet packages")
         api_proj = api / f"{self.pascal}.Api.csproj"
         run([
             "dotnet", "add", str(api_proj), "package",
@@ -523,8 +856,13 @@ class Generator:
             test_proj_file = self.test_proj(test_layer) / f"{self.pascal}.{test_layer}.csproj"
             run(["dotnet", "add", str(test_proj_file), "package", "FluentAssertions"])
 
+        header("Adding Entity Framework Core packages")
+        infra_proj_file = inf / f"{self.pascal}.Infrastructure.csproj"
+        run(["dotnet", "add", str(infra_proj_file), "package", "Microsoft.EntityFrameworkCore"])
+        run(["dotnet", "add", str(infra_proj_file), "package", self.db_info["provider_package"]])
+
     def write_custom_files(self) -> None:
-        log("\n=== Writing custom source files ===")
+        header("Writing custom source files")
         for layer in ("Domain", "Application", "Infrastructure"):
             marker = self.src_proj(layer) / "AssemblyMarker.cs"
             content = (
@@ -590,8 +928,45 @@ class Generator:
             )
             (self.test_proj(test_layer) / "SmokeTests.cs").write_text(content, encoding="utf-8")
 
+        header("Writing persistence wiring for " + self.db_info["display"])
+        db_context = self.src_proj("Infrastructure") / f"{self.pascal}DbContext.cs"
+        db_context.write_text(
+            substitute_template(
+                (TEMPLATES_DIR / "code" / "DbContext.cs").read_text(encoding="utf-8"),
+                self.pascal, self.lower,
+            ),
+            encoding="utf-8",
+        )
+
+        registration = self.src_proj("Infrastructure") / "InfrastructureServiceCollectionExtensions.cs"
+        registration.write_text(
+            substitute_template(
+                (TEMPLATES_DIR / "code" / self.db_info["registration_source"]).read_text(encoding="utf-8"),
+                self.pascal, self.lower,
+            ),
+            encoding="utf-8",
+        )
+
+        reg_tests_content = (
+            TEMPLATES_DIR / "code" / "InfrastructureRegistrationTests.cs"
+        ).read_text(encoding="utf-8")
+        reg_tests_content = (
+            reg_tests_content.replace("{{ProjectName}}", self.pascal)
+            .replace("{{ProviderName}}", self.db_info["provider_name"])
+        )
+        (self.test_proj("Infrastructure.Tests") / "InfrastructureRegistrationTests.cs").write_text(
+            reg_tests_content, encoding="utf-8"
+        )
+
+    def write_appsettings(self) -> None:
+        header("Writing connection string")
+        appsettings = self.src_proj("Api") / "appsettings.json"
+        data = json.loads(appsettings.read_text(encoding="utf-8"))
+        data["ConnectionStrings"] = {"Default": self.connection_string}
+        appsettings.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+
     def copy_docs(self) -> None:
-        log("\n=== Copying documentation ===")
+        header("Copying documentation")
         docs_src = HELP_DOCS_DIR / "docs"
         docs_dst = self.out / "docs"
 
@@ -616,16 +991,39 @@ class Generator:
         readme = (HELP_DOCS_DIR / "README.md").read_text(encoding="utf-8")
         (self.out / "README.md").write_text(substitute(readme, self.pascal, self.lower), encoding="utf-8")
 
-        docker = (TEMPLATES_DIR / "docker-compose.yml").read_text(encoding="utf-8")
+        header("Writing docker files for " + self.db_info["display"])
+        compose_src = TEMPLATES_DIR / "docker" / self.db_info["compose_source"]
         (self.out / "docker-compose.yml").write_text(
-            substitute_template(docker, self.pascal, self.lower), encoding="utf-8"
+            substitute_template(compose_src.read_text(encoding="utf-8"), self.pascal, self.lower),
+            encoding="utf-8",
         )
+
+        docker_dir = self.out / "docker"
+        docker_dir.mkdir(parents=True, exist_ok=True)
+        for compose_file in ("docker-compose.postgres.yml", "docker-compose.sqlserver.yml"):
+            src = TEMPLATES_DIR / "docker" / compose_file
+            (docker_dir / compose_file).write_text(
+                substitute_template(src.read_text(encoding="utf-8"), self.pascal, self.lower),
+                encoding="utf-8",
+            )
+
+        docker_readme = TEMPLATES_DIR / "docker" / f"README.{self.database}.md"
+        (docker_dir / "README.md").write_text(
+            substitute_template(docker_readme.read_text(encoding="utf-8"), self.pascal, self.lower),
+            encoding="utf-8",
+        )
+
+        env_example = TEMPLATES_DIR / "docker" / ".env.example"
+        (docker_dir / ".env.example").write_text(env_example.read_text(encoding="utf-8"), encoding="utf-8")
+
+        if self.db_password:
+            (docker_dir / ".env").write_text(f"MSSQL_SA_PASSWORD={self.db_password}\n", encoding="utf-8")
 
         gitignore = (TEMPLATES_DIR / ".gitignore").read_text(encoding="utf-8")
         (self.out / ".gitignore").write_text(gitignore, encoding="utf-8")
 
     def generate_opencode(self) -> None:
-        log("\n=== Generating .opencode agents and commands ===")
+        header("Generating .opencode agents and commands")
         agents_dir = self.out / ".opencode" / "agents"
         commands_dir = self.out / ".opencode" / "commands"
         agents_dir.mkdir(parents=True, exist_ok=True)
@@ -667,7 +1065,7 @@ class Generator:
 
     # -------------------------------------------------------------- validation
     def validate(self) -> bool:
-        log("\n=== Validation ===")
+        header("Validation")
         steps = [
             (["dotnet", "restore", str(self.sln)], "Restore"),
             (["dotnet", "build", str(self.sln), "--no-restore"], "Build"),
@@ -686,7 +1084,7 @@ class Generator:
 
     # ------------------------------------------------------------------- git
     def git_init(self) -> None:
-        log("\n=== Initializing git repository ===")
+        header("Initializing git repository")
         run(["git", "init", "-b", "main"], cwd=self.out)
 
         def stage(paths: list[str]) -> None:
@@ -710,6 +1108,7 @@ class Generator:
         stage([
             ".gitignore",
             "docker-compose.yml",
+            "docker",
             "README.md",
             f"{self.pascal}.sln",
             "src",
@@ -734,6 +1133,8 @@ class Generator:
             if f.is_file() and not any(part in skip_names for part in f.parts):
                 if f.suffix in {".md", ".cs", ".csproj", ".yml", ".yaml", ".json", ".sln", ".txt"}:
                     text = f.read_text(encoding="utf-8", errors="ignore")
+                    if "{{ProjectName}}" in text or "{{ProjectNameLower}}" in text:
+                        issues.append((f, "{{...}} token"))
                     if self.pascal != "Matchly" and "Matchly" in text:
                         issues.append((f, "Matchly"))
                     if self.lower != "matchly" and "matchly" in text:
@@ -766,42 +1167,77 @@ class Generator:
                 log(f"|-- {entry.name}")
 
     def report(self) -> None:
-        log("\n" + "=" * 60)
-        log("GENERATION REPORT")
-        log("=" * 60)
-        log(f"Project:      {self.pascal}")
-        log(f"Namespace:    {self.pascal}")
-        log(f"Directory:    {self.out}")
-        log(f"Framework:    {self.framework}")
-        log(f"API style:    {self.api_style}")
-        log(f"Validation:   {'PASS' if self.validation_ok else 'NOT RUN / FAILED'}")
+        print()
+        box(
+            [
+                (f"  {_style('Project:', 'yellow', True)}     {self.pascal}", "fg", False),
+                (f"  {_style('Namespace:', 'yellow', True)}   {self.pascal}", "fg", False),
+                (f"  {_style('Directory:', 'yellow', True)}   {self.out}", "fg", False),
+                (f"  {_style('Framework:', 'yellow', True)}   {self.framework}", "fg", False),
+                (f"  {_style('API style:', 'yellow', True)}   {self.api_style}", "fg", False),
+                (f"  {_style('Database:', 'yellow', True)}    {self.db_info['display']}", "fg", False),
+                (
+                    f"  {_style('Validation:', 'yellow', True)}  "
+                    f"{_style('PASS', 'green', True) if self.validation_ok else _style('NOT RUN / FAILED', 'red', True)}",
+                    "fg", False,
+                ),
+            ],
+            title="GENERATION REPORT",
+        )
+        if self.db_password:
+            cprint(f"  SQL Server SA password: {_style(self.db_password, 'orange', True)}")
+            cprint("  (stored in docker/.env — not committed to git)", "gray")
         leftovers = self.verify_no_leftovers()
-        log(f"Name sweep:   {'CLEAN' if not leftovers else f'{len(leftovers)} leftover reference(s)'}")
-        for path, token in leftovers:
-            log(f"  - {path.relative_to(self.out)} contains '{token}'")
-        log("=" * 60)
-        if self.validation_ok:
-            log("RESULT: SUCCESS - the generated project is green.")
+        if leftovers:
+            cprint(f"  Name sweep: {_style(f'{len(leftovers)} leftover reference(s)', 'red', True)}")
+            for path, token in leftovers:
+                log(f"  - {path.relative_to(self.out)} contains '{token}'")
         else:
-            log("RESULT: REVIEW REQUIRED - validation did not pass.")
+            cprint(f"  Name sweep: {_style('CLEAN', 'green', True)}")
+        print()
+        if self.validation_ok:
+            cprint("  RESULT: SUCCESS — the generated project is green.", "green", bold=True)
+        else:
+            cprint("  RESULT: REVIEW REQUIRED — validation did not pass.", "red", bold=True)
         self.print_tree()
 
 
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Generate a .NET Clean Architecture project scaffold with "
                     "agentic development tooling."
     )
-    parser.add_argument("name", help="Project name (e.g. Matchly, MyApp, My-App)")
+    parser.add_argument("name", nargs="?", help="Project name (e.g. Matchly, MyApp, My-App). Required unless the interactive wizard is used.")
     parser.add_argument("--dir", default=None, help="Output directory (default: <Name> in the current directory)")
     parser.add_argument("--framework", default=FRAMEWORK, help="Target framework, TFM form net<major>.<minor> (default: net10.0, minimum: net10.0)")
     parser.add_argument("--api-style", default=API_STYLE, choices=["controllers", "minimal"],
                         help="API style: 'controllers' generates a HealthController; 'minimal' uses minimal APIs (default: controllers)")
+    parser.add_argument("--database", default="postgres", choices=sorted(DATABASES),
+                        help="Database provider: 'postgres' (default) or 'sqlserver'")
+    parser.add_argument("--db-password", default=None,
+                        help="SQL Server SA password (default: a random password generated and stored in docker/.env)")
     parser.add_argument("--no-validate", action="store_true", help="Skip dotnet restore/build/test")
     parser.add_argument("--no-git", action="store_true", help="Skip git init and initial commits")
     parser.add_argument("--include-agent-runs", action="store_true", help="Also copy docs/agent-runs historical records")
     parser.add_argument("--force", action="store_true", help="Delete and recreate the output directory if it is not empty")
-    args = parser.parse_args()
+    parser.add_argument("--wizard", "-w", action="store_true", help="Force the interactive Gruvbox wizard")
+    return parser
+
+
+def main() -> None:
+    parser = build_parser()
+    raw = sys.argv[1:]
+    if not raw or "--wizard" in raw or "-w" in raw:
+        try:
+            args = run_wizard()
+        except WizardAbort:
+            cprint("\nAborted by user.", "red", bold=True)
+            sys.exit(0)
+        except KeyboardInterrupt:
+            cprint("\nInterrupted by user.", "red", bold=True)
+            sys.exit(130)
+    else:
+        args = parser.parse_args(raw)
 
     try:
         validate_framework(args.framework)
@@ -810,6 +1246,8 @@ def main() -> None:
             out_dir=Path(args.dir).resolve() if args.dir else (Path.cwd() / args.name).resolve(),
             framework=args.framework,
             api_style=args.api_style,
+            database=args.database,
+            db_password=args.db_password,
             include_agent_runs=args.include_agent_runs,
             do_validate=not args.no_validate,
             do_git=not args.no_git,
@@ -820,11 +1258,15 @@ def main() -> None:
         generator.scaffold()
         generator.configure_projects()
         generator.write_custom_files()
+        generator.write_appsettings()
         generator.copy_docs()
         generator.generate_opencode()
 
         if generator.do_validate:
-            generator.validate()
+            if not generator.validate():
+                generator.report()
+                log("\nERROR: validation failed (restore/build/test did not all pass).")
+                sys.exit(1)
         else:
             log("\n=== Validation skipped (--no-validate) ===")
 

@@ -60,16 +60,19 @@ Run the full feature workflow from OpenCode with:
 
 ## Database
 
-The application uses PostgreSQL. To start a local database with Docker:
+The application uses the database selected at generation time
+(**PostgreSQL** or **SQL Server**). Docker Compose files are included for
+both so the team can switch providers.
+
+To start the selected database with Docker:
 
 ```bash
 docker compose up -d
 ```
 
-This starts `matchly-postgres` on `localhost:5432` with database `matchly`
-and user `postgres` (trust auth, local development only).
-
-On startup, the API creates the database schema automatically via
-`EnsureCreatedAsync`, so no migration step is required.
+Read `docker/README.md` for provider-specific details: images, ports,
+connection strings and how to switch to the other database. The API reads
+its connection string from `ConnectionStrings:Default` (override with the
+`ConnectionStrings__Default` environment variable).
 
 

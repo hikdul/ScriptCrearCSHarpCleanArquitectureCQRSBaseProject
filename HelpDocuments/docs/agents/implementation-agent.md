@@ -193,7 +193,7 @@ Infrastructure
 API
 ASP.NET Core
 Entity Framework Core
-PostgreSQL
+database providers (PostgreSQL, SQL Server)
 HTTP
 External services
 ```
