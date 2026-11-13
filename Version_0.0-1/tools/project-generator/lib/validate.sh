@@ -108,8 +108,8 @@ prepare_destination() {
 		die "Refusing to use the filesystem root as the destination."
 	fi
 
-	if path_is_inside "$DEST" "$PROTECTED_ROOT"; then
-		die "The destination '$DEST' is inside the generator's source tree ($PROTECTED_ROOT). Choose an output directory outside it."
+	if path_is_inside "$DEST" "$(tree_root_for_guard)"; then
+		die "The destination '$DEST' is inside the generator's source tree ($(tree_root_for_guard)). Choose an output directory outside it."
 	fi
 
 	if [[ -e "$DEST" ]]; then
