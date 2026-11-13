@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\{{PROJECT_NAME}}.Domain\{{PROJECT_NAME}}.Domain.csproj" />
+    <ProjectReference Include="..\{{PROJECT_NAME}}.Application\{{PROJECT_NAME}}.Application.csproj" />
+    <ProjectReference Include="..\{{PROJECT_NAME}}.Security\{{PROJECT_NAME}}.Security.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>{{TARGET_FRAMEWORK}}</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!-- Provider isolation: EF Core and the database provider are implementation
+       details of Infrastructure only. Domain, Security and Application stay
+       provider independent. -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.12" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.12" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+</Project>

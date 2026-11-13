@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\{{PROJECT_NAME}}.Domain\{{PROJECT_NAME}}.Domain.csproj" />
+    <ProjectReference Include="..\{{PROJECT_NAME}}.Security\{{PROJECT_NAME}}.Security.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>{{TARGET_FRAMEWORK}}</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

@@ -1,0 +1,6 @@
+# OpenCode agents and commands that must not be copied into generated projects.
+# One path per line, relative to the repository root. Blank lines and lines
+# starting with '#' are ignored by the copier.
+#
+# Add product-specific agents or commands here as the source project grows.
+# Every file not listed is considered reusable development infrastructure.

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\{{PROJECT_NAME}}.Application\{{PROJECT_NAME}}.Application.csproj" />
+    <!-- The API is the composition root and is the only layer allowed to
+         reference Infrastructure, and only to register its services.
+         Controllers and endpoints never name Infrastructure types. -->
+    <ProjectReference Include="..\{{PROJECT_NAME}}.Infrastructure\{{PROJECT_NAME}}.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>{{TARGET_FRAMEWORK}}</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+</Project>
